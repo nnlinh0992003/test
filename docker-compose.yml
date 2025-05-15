@@ -1,0 +1,323 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=/api
+    image: csht-frontend:latest
+    env_file:
+      - ./frontend/.env
+    ports:
+      - "30081:80"
+    depends_on:
+      - api-gateway
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  infrastructure-service:
+    build:
+      context: ./backend/infrastructure_service
+      dockerfile: Dockerfile
+    image: csht-infrastructure-service:latest
+    ports:
+      - "30084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://infrastructure-db:5432/infra_service
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: broker:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-service:8761/eureka/
+      MINIO_SERVERS: http://minio:9000
+      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_DOMAIN: ${MINIO_DOMAIN}
+      FRONTEND_DOMAIN: ${FRONTEND_DOMAIN}
+    depends_on:
+      - infrastructure-db
+      - broker
+      - eureka-service
+      - minio
+      - redis
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  notification-service:
+    build:
+      context: ./backend/notification_service
+      dockerfile: Dockerfile
+    image: csht-notification-service:latest
+    ports:
+      - "30085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://notification-db:5432/notification_db
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: broker:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-service:8761/eureka/
+    depends_on:
+      - notification-db
+      - broker
+      - eureka-service
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  report-service:
+    build:
+      context: ./backend/report_service
+      dockerfile: Dockerfile
+    image: csht-report-service:latest
+    ports:
+      - "30087:8087"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-service:8761/eureka/
+    depends_on:
+      - eureka-service
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  api-gateway:
+    build:
+      context: ./backend/api_gateway
+      dockerfile: Dockerfile
+    image: csht-api-gateway:latest
+    ports:
+      - "30000:8000"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-service:8761/eureka/
+    depends_on:
+      - eureka-service
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  auth-service:
+    build:
+      context: ./backend/auth_service
+      dockerfile: Dockerfile
+    image: csht-auth-service:latest
+    ports:
+      - "30001:8001"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/auth_db
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-service:8761/eureka/
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - eureka-service
+      - auth-db
+      - redis
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  user-service:
+    build:
+      context: ./backend/user_service
+      dockerfile: Dockerfile
+    image: csht-user-service:latest
+    ports:
+      - "30002:8002"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://user-db:5432/user_db
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-service:8761/eureka/
+    depends_on:
+      - eureka-service
+      - user-db
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  camera-service:
+    build:
+      context: ./backend/camera_service
+      dockerfile: Dockerfile
+    image: csht-camera-service:latest
+    ports:
+      - "30082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://camera-db:5432/camera_service
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-service:8761/eureka/
+      MINIO_SERVERS: http://minio:9000
+      AI_SERVER: ${AI_SERVER}
+      MINIO_DOMAIN: ${MINIO_DOMAIN}
+    depends_on:
+      - eureka-service
+      - camera-db
+      - minio
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  eureka-service:
+    build:
+      context: ./backend/eureka_server
+      dockerfile: Dockerfile
+    image: csht-eureka-service:latest
+    ports:
+      - "30761:8761"
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  auth-db:
+    image: postgres
+    ports:
+      - "35432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: auth_db
+    volumes:
+      - auth_data:/var/lib/postgresql/data
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  user-db:
+    image: postgres
+    ports:
+      - "35433:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: user_db
+    volumes:
+      - user_data:/var/lib/postgresql/data
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  camera-db:
+    image: postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: camera_service
+    ports:
+      - "35555:5432"
+    volumes:
+      - camera_data:/var/lib/postgresql/data
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  infrastructure-db:
+    image: postgis/postgis:16-3.5-alpine
+    ports:
+      - "35435:5432"
+    environment:
+      POSTGRES_DB: infra_service
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    volumes:
+      - infra_data_postgis:/var/lib/postgresql/data
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  notification-db:
+    image: postgres
+    ports:
+      - "35438:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: notification_db
+    volumes:
+      - notification_data:/var/lib/postgresql/data
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  redis:
+    image: redis
+    ports:
+      - "36380:6379"
+    volumes:
+      - redis_data:/data
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    ports:
+      - "32181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+  broker:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "9092:9092"
+      - "39093:29092"
+    depends_on:
+      - zookeeper
+    restart: on-failure:3
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092, HOST_PLAIN://${KAFKA_EXTERNAL_IP}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT, HOST_PLAIN:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - new_safe_net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    ports:
+      - "38086:8080"
+    depends_on:
+      - broker
+    restart: on-failure:3
+    environment:
+      KAFKA_CLUSTERS_NAME: local
+      KAFKA_CLUSTERS_BOOTSTRAPSERVERS: broker:29092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - new_safe_net
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+    command: server --console-address ":9001" /data
+    volumes:
+      - minio_data:/data
+    restart: on-failure:3
+    networks:
+      - new_safe_net
+
+volumes:
+  infra_data_postgis:
+  notification_data:
+  auth_data:
+  redis_data:
+  user_data:
+  camera_data:
+  kafka_data:
+  zookeeper_data:
+  zookeeper_log:
+  minio_data:
+
+networks:
+  new_safe_net:
+    external: true
